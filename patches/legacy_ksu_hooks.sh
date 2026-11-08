@@ -11,6 +11,7 @@ patch_files=(
     fs/read_write.c
     fs/stat.c
     drivers/input/input.c
+    kernel/reboot.c
 )
 
 for i in "${patch_files[@]}"; do
@@ -65,6 +66,12 @@ for i in "${patch_files[@]}"; do
         fi
         ;;
 
+    ## reboot.c (KernelSU-Next legacy requires this anchor)
+    kernel/reboot.c)
+        sed -i '/SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,/i\#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' kernel/reboot.c
+        sed -i '/int ret = 0;/a\#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)\n	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif' kernel/reboot.c
+        ;;
+
     # drivers/input changes
     ## input.c
     drivers/input/input.c)
@@ -74,3 +81,20 @@ for i in "${patch_files[@]}"; do
     esac
 
 done
+
+check_hook() {
+    local file=$1 needle=$2
+    if ! grep -q "$needle" "$file"; then
+        echo "ERROR: KernelSU manual hook '$needle' missing in $file"
+        exit 1
+    fi
+}
+
+check_hook fs/exec.c "ksu_handle_execveat"
+check_hook fs/open.c "ksu_handle_faccessat"
+check_hook fs/read_write.c "ksu_handle_vfs_read"
+check_hook fs/stat.c "ksu_handle_stat"
+check_hook drivers/input/input.c "ksu_handle_input_handle_event"
+check_hook kernel/reboot.c "ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);"
+
+echo "KernelSU manual hook anchors verified"
